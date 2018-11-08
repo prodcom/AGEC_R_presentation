@@ -1,0 +1,514 @@
+---
+title: "Plotly"
+author: "Marco Hatt"
+date: "9 November 2018"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r Access packages, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Libraries
+packages <- c("gapminder","tidyverse","readxl","kableExtra","PCcharts","plotly","broom")
+
+for (i in packages) { 
+  if(!(i %in% rownames(installed.packages()))) install.packages(i)
+}  
+
+library(tidyverse)
+library(readxl)
+library(kableExtra) 
+library(PCcharts)
+library(plotly)
+library(broom)
+library(gapminder)
+options(scipen = 999) 
+
+```
+
+## Interactive graphics with plotly
+
+- Impressive
+
+- Informative
+
+- Easy
+
+
+## From ggplot2 to plotly
+
+**ggplot2**
+
+- More features and flexibility
+- Cannot do interactive graphics
+
+
+**plotly**
+
+- Interactive plots, great for websites and dashboards
+- Also useful for exploring your data
+
+  
+## Example of an interactive plot
+
+```{r plotly_fancy, echo=FALSE, message=FALSE, warning=FALSE}
+gapminder %>%
+  plot_ly(
+    x = ~gdpPercap, 
+    y = ~lifeExp, 
+    size = ~pop, 
+    color = ~continent, 
+    frame = ~year, 
+    text = ~country, 
+    hoverinfo = "text",
+    type = 'scatter',
+    mode = 'markers'
+  ) %>%
+  layout(
+    xaxis = list(
+      type = "log"
+    )
+  )
+```
+
+
+## It's this easy
+**Tidy data**
+```{r plotly_fancy_code, echo=FALSE, message=FALSE, warning=FALSE}
+head(gapminder)
+```
+**Code**
+
+gapminder %>%
+  plot_ly(x = ~gdpPercap, y = ~lifeExp, size = ~pop, color = ~continent, frame = ~year, text = ~country, 
+    hoverinfo = "text",type = 'scatter',mode = 'markers') %>%
+  layout(xaxis = list(type = "log"))
+
+
+
+```{r Download data, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+# Download the APRA data if it is not there
+if("2018-AFLSS-201706.xlsx" %in% list.files() == FALSE) { 
+   link <- "https://www.apra.gov.au/sites/default/files/2018-AFLSS-201706.xlsx"
+   download.file(link, "2018-AFLSS-201706.xlsx", mode = "wb")
+   }
+
+# Import Table 2
+table2 <- read_xlsx("2018-AFLSS-201706.xlsx", sheet = "Table 2", range = "A5:AA206", col_names = TRUE, trim_ws = TRUE) 
+table2 <- table2 %>% 
+   filter(!is.na(`Fund name`) )
+# Remove carriage return and line feed from colnames
+colnames(table2) <- gsub("\r\n", " ", colnames(table2) )
+
+# Import Table 3
+table3 <- read_xlsx("2018-AFLSS-201706.xlsx", sheet = "Table 3", range = "A5:CE206", col_names = TRUE, trim_ws = TRUE)
+table3 <- table3 %>%
+   select(`Fund name`, `Total administration and operating expenses`, `Total Investment expenses`, `Cash flow adjusted net assets`) %>% 
+   filter(!is.na(`Fund name`) )
+
+# Join tables 2 and 3
+apra <- table2 %>% 
+   left_join(table3, by = "Fund name")
+
+rm(table2, table3)
+```
+
+```{r TidyData, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+
+apra <- apra %>% 
+# Select required variables
+   select(`Fund name`, `Fund type`, `Total assets`, `Number of MySuper products authorised`, 
+          `Total number of member accounts`, `Average member account balance` ,
+          `Total administration and operating expenses`, `Total Investment expenses` , `Cash flow adjusted net assets`, 
+          `Proportion of total assets in default or MySuper strategy`,
+          `One-year rate of return`, `Five-year rate of return`, `Ten-year rate of return` ) %>% 
+# Convert vars that we want to be numeric
+   mutate_at(.tbl = .,.vars = 3:length(.),.funs = as.numeric ) %>% 
+# Turn proportions into percentages
+   mutate_at(.tbl = .,.vars = 10:length(.),.funs = funs( .*100) ) %>% 
+# Tidy fund type variable
+   mutate(`Fund type` = case_when(`Fund type` == "Public Sector" ~ "Public sector" ,
+                                `Fund type` == "Retail - ERF" ~ "Retail" , 
+                                TRUE ~ `Fund type`) ) %>% 
+   mutate(`Fund type` = fct_relevel(as_factor(`Fund type`), c("Industry", "Retail", "Corporate", "Public sector") ) ) %>% 
+# Calculate operating and invesetment expenses ratios
+   mutate(`Operating expense ratio` = `Total administration and operating expenses`/ `Cash flow adjusted net assets`*100 , 
+          `Investment expenses ratio` = `Total Investment expenses`/ `Cash flow adjusted net assets`*100 ) %>% 
+# Remove unnecessary variables
+   select( -c("Total administration and operating expenses" , "Total Investment expenses" , "Cash flow adjusted net assets") )
+
+#head(apra)
+
+apra <- apra %>%
+   filter(!is.na(`Total assets`) & `Total assets` != 0 ) %>%
+   filter(!is.na(`Total number of member accounts`) & `Total number of member accounts` != 0 ) %>% 
+# Assets are initially in $'000s
+   mutate(`Total assets` = `Total assets`*1000) 
+   
+```
+
+
+```{r OpExpPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+Plot1_gg <- apra %>%
+# Note: Total assets are squared here to emphasise differences in fund size
+   mutate(`Total assets` = `Total assets`^2 ) %>% 
+   ggplot( aes(x = `Operating expense ratio`, y = `Ten-year rate of return`) ) +
+   geom_point( aes(size = `Total assets`, colour = `Fund type`), shape = 1, stroke=1.1) +
+   geom_smooth()+
+   PC.theme.scat() +
+   scale_colour_manual(values = c(PC_green, PC_orange, PC_purple, PC_yellow) ) +
+   scale_x_continuous( limits=c(0, 1) ) +
+   guides(size=FALSE) 
+
+```
+
+
+## Two approaches
+1. `ggplotly` function
+  - Takes a `ggplot` object and returns a plotly object
+  - Doesn't pick up all customisation in `ggplot`, 
+  e.g. legend position
+  - Easy way to add interactivity to `ggplot`
+  
+2. `plot_ly` interface
+  - Faster (computationally) than `ggplotly`
+  - Less features than `ggplot`
+
+
+## ggplotly
+- With ggplotly can take this static ggplot and make it interactive
+```{r ggplot_static, echo=FALSE, message=FALSE, warning=FALSE}
+Plot1_gg
+```
+
+## ggplotly
+```{r ggplotly, echo=TRUE, message=FALSE, warning=FALSE}
+ggplotly(Plot1_gg)
+```
+
+
+## Plotly basics 
+
+- `ggplot` syntax: 
+`ggplot(data,mapping=aes()) + geom_bar() ...`
+
+- `plot_ly` syntax: 
+ Borrows semantics from **dplyr** and **tidyr** packages
+
+- Attributes defined via `plot_ly` which sets 'global' attributes that 
+  are carried onto subsequent traces
+  
+- Example:
+```{r plotly_101, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE}
+
+plot_ly(economics, x = ~date, color = I("black")) %>%
+ add_lines(y = ~uempmed) %>%
+ add_lines(y = ~psavert, color = I("red"))
+
+```
+
+##
+
+```{r plotly_101_output, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+plot_ly(economics, x = ~date, color = I("black")) %>%
+ add_lines(y = ~uempmed) %>%
+ add_lines(y = ~psavert, color = I("red"))
+
+```
+
+## Exercises
+
+Using the APRA dataset
+
+1. Using a box plot, identify the outlying funds by their
+rate of return. Colour by fund type.
+* hint: use `type = "box"`
+
+2. Using a scatter plot, identify the outlyers in terms of 
+operating expense ratio and investment expense ratio.
+* hint: use `type = "scatter"`
+
+`plot_ly(data = data.frame(), ..., color, text, type)`
+
+- Remember the `~` e.g. x=~'variable name'
+
+## Exercise answer 1: box plot
+```{r plotly_basic, echo=TRUE, message=FALSE, warning=FALSE, eval=TRUE}
+
+plot_ly(data=apra, x = ~`Ten-year rate of return`, 
+        color = ~`Fund type`, text = ~`Fund name`, type = "box")
+
+```
+
+## Exercise answer 2: scatter plot
+
+```{r plotly_basic2, echo=TRUE, message=FALSE, warning=FALSE, eval=TRUE}
+
+plot_ly(data=apra, x = ~`Operating expense ratio`, 
+        y = ~`Investment expenses ratio`, type = 'scatter', 
+        mode = 'markers',text = ~`Fund name`, color = ~`Fund type`)
+```
+
+## subplot 
+
+-The `subplot` function provides a flexible interface for merging multiple plotly objects into a single object
+
+-A bit like `facet_wrap` and `facet_grid` from `ggplot`, e.g.
+
+```{r facet_wrap, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+apra %>% select(`Fund type`,`Operating expense ratio`,`Investment expenses ratio`,`Proportion of total assets in default or MySuper strategy`,`Ten-year rate of return`,`Total assets`) %>% 
+  mutate(`Total assets` = `Total assets`^2) %>% 
+  gather(key="Variable",value="value",-c(`Fund type`,`Ten-year rate of return`,`Total assets`)) %>% 
+  ggplot(aes(y=`Ten-year rate of return`, x=value , colour=`Fund type`, size=`Total assets`)) + geom_point() +
+  PC.theme.scat() +  
+  facet_wrap(~Variable,scales="free")   +
+  xlab("") +
+  scale_colour_manual(values=PC.palette(n=4))
+```
+
+## subplot 
+
+```{r subplot, echo=TRUE, message=FALSE, warning=FALSE, eval=TRUE, results='hide',size='tiny'}
+
+p1 <- apra %>% 
+  plot_ly(x = ~`Investment expenses ratio`, y = ~`Ten-year rate of return`, 
+          type = 'scatter', mode = 'markers',text = ~`Fund name`, 
+          color = ~`Fund type`,size = ~`Total assets`^2,
+          legendgroup= ~`Fund type`,showlegend = F)
+
+p2 <- apra %>% 
+  plot_ly(x = ~`Operating expense ratio`, y = ~`Ten-year rate of return`, 
+          type = 'scatter', mode = 'markers',text = ~`Fund name`, 
+          color = ~`Fund type`,size = ~`Total assets`^2,
+          legendgroup= ~`Fund type`,showlegend = F)
+ 
+p3 <- apra %>% 
+  plot_ly(x = ~`Proportion of total assets in default or MySuper strategy`, 
+          y = ~`Ten-year rate of return`, type = 'scatter', 
+          mode = 'markers',text = ~`Fund name`, color = ~`Fund type`,
+          size = ~`Total assets`^2,
+          legendgroup= ~`Fund type`,showlegend = T)
+
+```
+
+
+
+## subplot
+
+```{r subplot_function, echo=TRUE, message=FALSE, warning=FALSE, eval=TRUE, results='hide'}
+
+apra.range<- apra %>% 
+  select(`Operating expense ratio`,`Ten-year rate of return`) %>% 
+  na.omit()
+
+min.y <- floor(round(min(apra.range$`Ten-year rate of return`),1))
+max.y <- ceiling(round(max(apra.range$`Ten-year rate of return`),1))
+
+subplot(p1,p2,p3,titleY = TRUE,titleX=TRUE,shareY = TRUE) %>% 
+  layout(yaxis = list(range = c(min.y,max.y)))
+
+```
+
+
+## subplot 
+
+```{r subplot_output, echo=FALSE, message=FALSE, warning=FALSE}
+
+subplot(p1,p2,p3,titleY = TRUE,titleX=TRUE,shareY = TRUE) %>% 
+  layout(yaxis = list(range = c(min.y,max.y)))
+
+```
+
+## Drop down menus
+- What if you wanted to have a drop down box instead of (or in addition to) the legend filter
+
+```{r filter_legend, echo=TRUE, message=FALSE, warning=FALSE}
+plot_ly(apra, x = ~`Operating expense ratio`, y = ~`Ten-year rate of return`, 
+        type = 'scatter', mode = 'markers',text = ~`Fund name`,
+        size = ~`Total assets`^2,color= ~`Fund type`)
+```
+
+## Drop down menus
+
+```{r filter_box, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE, results='hide'}
+plot_ly(apra, x = ~`Operating expense ratio`, 
+        y = ~`Ten-year rate of return`, 
+        type = 'scatter', mode = 'markers',text = ~`Fund name`,
+        size = ~`Total assets`^2,
+        transforms = list(
+          list( 
+            type = 'filter',
+            target = ~`Fund type`,
+            operation = '=',
+            value = ~`Fund type`[1]))) %>% 
+
+
+```
+
+## Drop down menus
+
+
+```{r filter_box_layout, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE, results='hide'}
+  layout(
+    updatemenus = list(
+      list(
+        type = 'dropdown',
+        active = 1,
+        buttons = lapply(unique(apra$`Fund type`), function (x) {
+          list(method = "restyle",
+               args = list("transforms[0].value",x),
+               label = x)} ) )),
+    xaxis = list(range = c(min.x,max.x)),
+    yaxis = list(range = c(min.y,max.y)))
+
+```
+## Drop down menus
+
+```{r filter_box_output, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+
+apra.range<- apra %>% select(`Operating expense ratio`,`Ten-year rate of return`) %>% na.omit()
+min.x <- floor(round(min(apra.range$`Operating expense ratio`),1))
+max.x <- ceiling(round(max(apra.range$`Operating expense ratio`),1))
+min.y <- floor(round(min(apra.range$`Ten-year rate of return`),1))
+max.y <- ceiling(round(max(apra.range$`Ten-year rate of return`),1))
+
+
+  p <- plot_ly(apra, x = ~`Operating expense ratio`, y = ~`Ten-year rate of return`, 
+          type = 'scatter', mode = 'markers',text = ~`Fund name`,size = ~`Total assets`^2,
+          transforms = list(
+            list( 
+              type = 'filter',
+              target = ~`Fund type`,
+              operation = '=',
+              value = ~`Fund type`[1]))) %>% 
+  layout(
+  updatemenus = list(
+    list(
+      type = 'dropdown',
+      active = 1,
+      buttons = lapply(unique(apra$`Fund type`), function (x) {
+        list(method = "restyle",
+             args = list("transforms[0].value",x),
+             label = x)} ) )),
+  xaxis = list(range = c(min.x,max.x)),
+  yaxis = list(range = c(min.y,max.y)))
+
+p
+
+```
+
+## Error bars
+
+Calculate regression coefficients and standard errors
+```{r error_bars_code, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE}
+
+m <- lm(data = apra,`Ten-year rate of return` ~ `Operating expense ratio`+ 
+          `Investment expenses ratio` + 
+          `Proportion of total assets in default or MySuper strategy`)
+d <- broom::tidy(m) %>% arrange(desc(estimate))
+```
+
+Create a scatter (with the coeffients) and use `error_x` to get the error bars
+```{r error_bars_code2, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE}
+plot_ly(d, x = ~estimate, y = ~term) %>%
+  add_markers(error_x = ~list(value = std.error)) %>%
+  layout(yaxis = list(title ="", autorange = "reversed")) 
+
+```
+
+## Error bars
+
+```{r error_bars_output, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+m <- lm(data = apra,`Ten-year rate of return` ~ `Operating expense ratio`+ 
+          `Investment expenses ratio` + 
+          `Proportion of total assets in default or MySuper strategy`)
+
+m2 <- lm(data = apra,`One-year rate of return` ~ `Operating expense ratio`+ 
+          `Investment expenses ratio` + 
+          `Proportion of total assets in default or MySuper strategy`)
+
+d <- broom::tidy(m) %>% arrange(desc(estimate)) 
+d2 <- broom::tidy(m2) %>% arrange(desc(estimate)) %>% mutate(std.error2 = std.error,estimate2=estimate)
+
+d <- left_join(d,d2 %>% select(term,estimate2,std.error2),by = "term")
+plot_ly(d, y = ~term) %>%
+  add_markers(x = ~estimate, error_x = ~list(value = std.error), name = '10 year rate of return') %>%
+  add_markers(x = ~estimate2, error_x = ~list(value = std.error2), name = '1 year rate of return') %>% 
+  layout(yaxis = list(title ="", autorange = "reversed"),legend = list(x = 0.7, y = 0.1)) 
+
+```
+
+
+## Ribbons
+
+```{r ribbons, echo=TRUE, message=FALSE, warning=FALSE, eval=FALSE}
+
+ribs <- lm(`Ten-year rate of return` ~ `Operating expense ratio`, 
+           data = apra) %>% augment(.) 
+
+apra$.rownames <- rownames(apra)
+apra$.se.fit <- NULL
+apra$.fitted <- NULL
+apra <- left_join(apra,ribs %>% select(.rownames,.se.fit,.fitted),by=".rownames")
+
+plot_ly(apra, x = ~`Operating expense ratio`, y = ~`Ten-year rate of return`, 
+        type = 'scatter', mode = 'markers',text = ~`Fund name`) %>% 
+  add_ribbons(
+    ymin = ~.fitted - 1.96 * .se.fit,
+    ymax = ~.fitted + 1.96 * .se.fit,
+    line = list(color = 'rgba(7, 164, 181, 0.05)'),
+    fillcolor = 'rgba(7, 164, 181, 0.2)',
+    name = "Standard Error") %>% 
+  layout(
+    xaxis = list(range = c(0, 1)),
+    yaxis = list(range = c(-5, 5)),
+    showlegend = FALSE)
+```
+
+## Ribbons
+
+```{r ribbons_output, echo=FALSE, message=FALSE, warning=FALSE}
+
+ribs <- lm(`Ten-year rate of return` ~ `Operating expense ratio`, 
+           data = apra) %>% augment(.) 
+
+apra$.rownames <- rownames(apra)
+apra$.se.fit <- NULL
+apra$.fitted <- NULL
+apra <- left_join(apra,ribs %>% select(.rownames,.se.fit,.fitted),by=".rownames")
+
+plot_ly(apra, x = ~`Operating expense ratio`, y = ~`Ten-year rate of return`, 
+        type = 'scatter', mode = 'markers',text = ~`Fund name`) %>% 
+  add_ribbons(
+    ymin = ~.fitted - 1.96 * .se.fit,
+    ymax = ~.fitted + 1.96 * .se.fit,
+    line = list(color = 'rgba(7, 164, 181, 0.05)'),
+    fillcolor = 'rgba(7, 164, 181, 0.2)',
+    name = "Standard Error") %>% 
+  layout(
+    xaxis = list(range = c(0, 1)),
+    yaxis = list(range = c(-5, 5)),
+    showlegend = FALSE)
+```
+
+## Conclusion
+
+- It is very easy to create impressive and highly informative interative graphics with plotly
+- It gets a little more complicated with some features (e.g. subplot,drop down menus,ribbons)
+- In some cases, ggploty might be the better way to go (i.e. construct your graph in ggplot then convert to plotly)
+
+**Resources**
+
+- [Carson Sievert's plotly for R](https://plotly-book.cpsievert.me)
+
+- [Plotly R open source graphing library](https://plot.ly/r/)
+
+
+
