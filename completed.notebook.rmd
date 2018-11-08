@@ -1,0 +1,215 @@
+---
+title: "Access, clean and plot APRA Annual Fund Level Superannuation Statistics"
+output: html_notebook
+editor_options: 
+   chunk_output_type: inline
+---
+   
+This `R Notebook` contains executable code that will download APRA's Annual Fund Level Superannuation Statistics, and import it into R. The spreadsheet will then be tidied for use in putting together some indicators of superannuation fund outputs.
+
+Note that the 'Preview' function does **not** execute all the code, unlike the `knit` functions. It provides a preview based on the R session that is in progress. 
+
+You will need to execute all the code beforehand:
+
+- Ctrl+Alt+R: Run all chunks
+- Ctrl+Alt+P: Run all chunks above cursor
+
+## Access data
+
+If the data is not there, the code chunk below will download the data and import Table 2. Table 2 of this dataset provides information about superannuation funds' profile and structure. Table 3 contains information about individual funds' financial performance.
+
+```{r AccessData, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Libraries
+library(tidyverse)
+library(readxl)
+library(pander) 
+library(PCcharts)
+options(scipen = 999) 
+
+# Download the APRA data if it is not there
+if("2018-AFLSS-201706.xlsx" %in% list.files() == FALSE) { 
+link <- "https://www.apra.gov.au/sites/default/files/2018-AFLSS-201706.xlsx"
+download.file(link, "2018-AFLSS-201706.xlsx", mode = "wb")
+}
+
+# Import Table 2
+table2 <- read_xlsx("2018-AFLSS-201706.xlsx", sheet = "Table 2", range = "A5:AA206", col_names = TRUE, trim_ws = TRUE) 
+table2 <- table2 %>% 
+filter(!is.na(`Fund name`) )
+# Remove carriage return and line feed from colnames
+colnames(table2) <- gsub("\r\n", " ", colnames(table2) )
+
+# Import Table 3
+table3 <- read_xlsx("2018-AFLSS-201706.xlsx", sheet = "Table 3", range = "A5:CE206", col_names = TRUE, trim_ws = TRUE)
+table3 <- table3 %>%
+select(`Fund name`, `Total administration and operating expenses`, `Total Investment expenses`, `Cash flow adjusted net assets`) %>% 
+filter(!is.na(`Fund name`) )
+
+# Join tables 2 and 3
+apra <- table2 %>% 
+left_join(table3, by = "Fund name")
+
+rm(table2, table3)
+
+```
+
+## Tidy data
+Let's have a quick look at what we have:
+   
+`r head(apra)`
+
+We can see that there are `r length(apra)` variables for `r nrow(apra)` superannuation funds. 
+
+It is also evident that there are a number of numeric variables -- such as total assets -- that have been imported as character variables. This is because some of the data relating to small funds has been withheld and replaced by an `*`.
+
+To tidy the data for use in this session, we will:
+   
+- Select a few variables that are of interest.
+- Change the `type` of the variables that we want as numeric from character to numeric. 
+
+```{r TidyData, echo=TRUE, message=FALSE, warning=FALSE}
+
+apra <- apra %>% 
+   # Select required variables
+   select(`Fund name`, `Fund type`, `Total assets`, `Number of MySuper products authorised`, 
+          `Total number of member accounts`, `Average member account balance` ,
+          `Total administration and operating expenses`, `Total Investment expenses` , `Cash flow adjusted net assets`, 
+          `Proportion of total assets in default or MySuper strategy`,
+          `One-year rate of return`, `Five-year rate of return`, `Ten-year rate of return` ) %>% 
+   # Convert vars that we want to be numeric
+   mutate_at(.tbl = .,.vars = 3:length(.),.funs = as.numeric ) %>% 
+   # Turn proportions into percentages
+   mutate_at(.tbl = .,.vars = 10:length(.),.funs = funs( .*100) ) %>% 
+   # Tidy fund type variable
+   mutate(`Fund type` = case_when(`Fund type` == "Public Sector" ~ "Public sector" ,
+                                  `Fund type` == "Retail - ERF" ~ "Retail" , 
+                                  TRUE ~ `Fund type`) ) %>% 
+   mutate(`Fund type` = fct_relevel(as_factor(`Fund type`), c("Industry", "Retail", "Corporate", "Public sector") ) ) %>% 
+   # Calculate operating and invesetment expenses ratios
+   mutate(`Operating expense ratio` = `Total administration and operating expenses`/ `Cash flow adjusted net assets`*100 , 
+          `Investment expenses ratio` = `Total Investment expenses`/ `Cash flow adjusted net assets`*100 ) %>% 
+   # Remove unnecessary variables
+   select( -c("Total administration and operating expenses" , "Total Investment expenses" , "Cash flow adjusted net assets") )
+
+head(apra)
+
+```
+
+
+We can now see that the apra data.frame now has `r length(apra)` variables, and that where data was withheld, it is now `NA`.
+
+## Characteristics of superannuation funds
+
+```{r SummariseData, echo=TRUE, message=FALSE, warning=FALSE}
+
+apra <- apra %>%
+   filter(!is.na(`Total assets`) & `Total assets` != 0 ) %>%
+   filter(!is.na(`Total number of member accounts`) & `Total number of member accounts` != 0 ) %>% 
+   # Assets are initially in $'000s
+   mutate(`Total assets` = `Total assets`*1000) 
+
+write_csv(apra, "apra.csv")
+
+# Create summary table
+summary_table <- apra %>%
+   group_by(`Fund type`) %>%
+   summarise(`Mean assets ($m)` = sum(`Total assets`, na.rm=TRUE)/n()/1000000 ,
+             `Number of funds` = n() ,
+             `Operating expense ratio (%)` = weighted.mean(`Operating expense ratio`, `Total assets`, na.rm = TRUE) ,
+             `Investment expense ratio (%)` = weighted.mean(`Investment expenses ratio`, `Total assets`, na.rm = TRUE) ,
+             `One-year return (%)` = weighted.mean(`One-year rate of return`, `Total assets`, na.rm = TRUE) ,
+             `Five-year return (%)` = weighted.mean(`Five-year rate of return`, `Total assets`, na.rm = TRUE) ,
+             `Ten-year return (%)` = weighted.mean(`Ten-year rate of return`, `Total assets`, na.rm = TRUE) )
+
+```
+
+The tidied data can then be used to generate an aggregated summary table of the mean characteristics of the different fund types. There are a number of different ways of presenting tables in R markdown:
+   
+- When rendering tables into `html`, I find that the `kable` function from the `kableExtra` package provides enough flexibility and produces tables that look quite nice.
+- When rendering into word, I prefer `pander::pandoc.table`.
+
+#### Super fund *mean* characteristics
+```{r SummaryTable, echo=FALSE, results='asis' }
+pandoc.table(summary_table, 
+             big.mark = " ", 
+             digits = c(0,0,2,2,2,3,3,3),
+             justify = c('left', 'right', 'right', 'right','right','right','right','right') ,
+             split.tables = Inf)
+
+```
+
+## Let's make some plots
+
+The summary data table above *may* be useful for a report. But it doesn't reallly tell us much about the dataset itself.
+
+It could be useful to look at the returns for individual funds, and then see if funds with higher investment expense ratios (investment expenses as a proportion of total assets) have higher returns.
+In order to do this:
+
+1. Insert a new code chunk.
+2. Set `echo = FALSE, warning = FALSE` in the header to hide the code chunk. (Note, if you would like to see the code used to generate the plot and any accompanying warnings, set these `=TRUE`.  
+3. Write code for a plot. 
+
+### Operating expenses ratio by rate of return 
+#### *Circle size indicates funds under mananagment*
+```{r OpExpPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+apra %>%
+   # Note: Total assets are squared here to emphasise differences in fund size
+   mutate(`Total assets` = `Total assets`^2 ) %>% 
+   ggplot( aes(x = `Operating expense ratio`, y = `Ten-year rate of return`) ) +
+   geom_point( aes(size = `Total assets`, colour = `Fund type`), shape = 1, stroke=1.1) +
+   geom_smooth()+
+   PC.theme.scat() +
+   scale_colour_manual(values = c(PC_green, PC_orange, PC_purple, PC_yellow) ) +
+   scale_x_continuous( limits=c(0, 1) ) +
+   guides(size=FALSE) 
+
+```
+
+### Investment expenses ratio by rate of return 
+#### *Circle size indicates funds under mananagment*
+```{r InvExpPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+apra %>% 
+   mutate(`Total assets` = `Total assets`^2 ) %>% 
+   ggplot( aes(x = `Investment expenses ratio`, y = `Ten-year rate of return`) ) +
+   geom_point( aes(size = `Total assets`, colour = `Fund type`), shape = 1, stroke=1.1) +
+   geom_smooth()+
+   PC.theme.scat() +
+   scale_colour_manual(values = c(PC_green, PC_orange, PC_purple, PC_yellow) ) +
+   scale_x_continuous( limits=c(0, 1) ) +
+   guides(size=FALSE) 
+
+```
+
+### Investment and operating expenses ratios
+#### *Circle size indicates funds under mananagment*
+```{r InvestOpExpPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+apra %>% 
+   mutate(`Total assets` = `Total assets`^2 ) %>% 
+   ggplot( aes(y = `Investment expenses ratio`, x = `Operating expense ratio`, colour = `Fund type`) ) +
+   geom_point( aes(size = `Total assets` ), shape = 1, stroke=1.5 ) +
+   scale_colour_manual(values = c(PC_green, PC_orange, PC_purple, PC_yellow) ) +
+   scale_y_continuous( limits=c(0,1.5) ) +
+   scale_x_continuous( limits=c(0,5) ) +
+   PC.theme.scat()+
+   guides(size=FALSE) 
+
+```
+
+### Returns by proportion of default/MySuper assets
+#### *Circle size indicates funds under mananagment*
+```{r ReturnsMySuperPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+apra %>% 
+   mutate(`Total assets` = `Total assets`^2 ) %>% 
+   ggplot( aes(y = `Ten-year rate of return`, x = `Proportion of total assets in default or MySuper strategy`) ) +
+   geom_point( aes(size = `Total assets` , colour = `Fund type` ), shape = 1, stroke = 1.05) +
+   scale_colour_manual(values = c(PC_green, PC_orange, PC_purple, PC_yellow) ) +
+   scale_y_continuous( limits=c(-2,7) ) +
+   geom_smooth()+
+   PC.theme.scat()+
+   guides(size=FALSE) 
+   
+```

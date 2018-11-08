@@ -1,0 +1,63 @@
+---
+title: "Access, clean and plot APRA Annual Fund Level Superannuation Statistics"
+output: html_notebook
+---
+
+**NOTE: YOU SHOULD RUN ALL THE CHUNKS BEFORE TRYING TO PREVIEW A NOTEBOOK**
+
+[INSERT NARRATIVE: what does this notebook examine/show ] 
+
+## Access 
+
+- To be completed by you
+
+- Narrative would go here
+
+```{r Chunk1_AccessData, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+# Insert libraries and prelim code here
+
+```
+
+## Tidy
+
+- To be completed (by you)
+
+- Description of what tidying is required would go here
+
+- Insert code chunk that tidies data (from script.R)
+
+```{r Chunk2_TidyData, echo=TRUE, message=FALSE, warning=FALSE}
+
+
+
+```
+
+## Summarise
+
+- To be completed by you
+
+- Insert code chunk and code that produces summary table (from script.R)
+
+```{r Chunk3_SummariseData}
+
+```
+
+- Inspect `pander::pandoc.table` fundction that renders the `data.frame` as a table object
+#### Super fund *mean* characteristics table
+```{r Chunk4_SummaryTable, echo=FALSE, results='asis' }
+pandoc.table(summary_table, 
+             big.mark = " ", 
+             digits = c(0,0,2,2,2,3,3,3),
+             split.tables = Inf)
+```
+
+## Let's make some plots
+
+- To be completed by you
+
+- Insert code chunks that generate and display plots (from script.R)
+
+
+
+

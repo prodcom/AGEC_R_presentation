@@ -1,0 +1,13 @@
+Profit.status,Year,Service_Source,Service_Type,Expenses (% of total assets),N,Percent
+Not for profit,2011-12,In-house services,Administration services,0.1923276196540133,N = 28,36%
+Not for profit,2011-12,Associate providers,Administration services,0.15539210191283173,N = 22,29%
+Not for profit,2011-12,Non-associate providers ,Administration services,0.18087874382931196,N = 58,34%
+Not for profit,2016-17,In-house services,Administration services,0.11424047426517048,N = 30,34%
+Not for profit,2016-17,Associate providers,Administration services,0.11602793542340667,N = 21,34%
+Not for profit,2016-17,Non-associate providers ,Administration services,0.10726069013433179,N = 61,32%
+Retail,2011-12,In-house services,Administration services,0.6105648345233485,N = 22,36%
+Retail,2011-12,Associate providers,Administration services,0.7815787733512122,N = 18,46%
+Retail,2011-12,Non-associate providers ,Administration services,0.30312013067182786,N = 32,18%
+Retail,2016-17,In-house services,Administration services,0.48070287819554836,N = 25,43%
+Retail,2016-17,Associate providers,Administration services,0.470206726725453,N = 28,42%
+Retail,2016-17,Non-associate providers ,Administration services,0.1660470808975164,N = 40,15%
